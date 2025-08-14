@@ -5,9 +5,7 @@ import { getJson } from "serpapi";
 import { createClient } from "@supabase/supabase-js";
 import { GoogleGenAI } from "@google/genai";
 
-
 const preferences = getPreferenceValues<Preferences>();
-console.log(preferences);
 
 const supabaseUrl = preferences.supabase_url;
 const supabaseKey = preferences.supabase_key;
@@ -22,7 +20,7 @@ const r = new snoowrap({
 });
 
 const ai = new GoogleGenAI({
-	apiKey: preferences.google_genai_api_key,
+	apiKey: preferences.gemma_api_key,
 });
 
 async function askAI(query: string) {
@@ -33,136 +31,272 @@ async function askAI(query: string) {
 	return response.text || "NO RESPONSE";
 }
 
-async function getNearestMajorCity(city: string, state: string | null) {
-	if (state) {
-		const s = `${city} ${state}`;
-		const { data: cityData } = await supabase
+async function getNearestMajorCity(city: string, state: string | null = null): Promise<string | null> {
+	try {
+		const searchQuery = state ? `${city} ${state}` : city;
+		console.log(`Searching for nearest major city to: ${searchQuery}`);
+
+		const { data: cityData, error: cityError } = await supabase
 			.from("cities")
 			.select("*")
-			.ilike("place", `%${s}%`) // case-insensitive partial match
+			.ilike("place", `%${searchQuery}%`)
 			.limit(1);
 
-		const lat = cityData.lat;
-		const lon = cityData.lng;
+		if (cityError || !cityData || cityData.length === 0) {
+			console.log("No city found in database");
+			return null;
+		}
 
-		const { data } = await supabase.rpc('get_nearest_big_city', {
+		const lat = cityData[0].lat;
+		const lon = cityData[0].lng;
+
+		console.log(`Found coordinates: ${lat}, ${lon}`);
+
+		const { data: nearestCity, error: nearestError } = await supabase.rpc('get_nearest_big_city', {
 			current_lat: lat,
 			current_lon: lon,
 			radius_meters: 100000
 		});
-		console.log(data);
+
+		if (nearestError || !nearestCity || nearestCity.length === 0) {
+			console.log("No nearest big city found");
+			return null;
+		}
+
+		console.log("Found nearest major city:", nearestCity[0]);
+		return nearestCity[0].place || nearestCity[0].name; // Adjust based on your DB schema
+	} catch (error) {
+		console.error("Error finding nearest major city:", error);
+		return null;
 	}
 }
 
-/// Uses the Raycast AI API and PostGIS to deduce a new city to pick.
-async function fixQuery(query: string) {
-	console.log("No response found. Getting nearest big city...")
-	const nameSuggestion = await askAI(`A user in an app entered this city name as a location within the US, but no major subreddit was found for it. If no state was provided, return ONE single word that could be what the user could have been referring to. If a state is included, return in the format "place, state". If it is nonsense, return "NONE" - do NOT include any explanations in any of the answers. Just the raw text. This the input: ${query}.`);
-	if (nameSuggestion !== "NONE") {
-		return await getSubreddits(nameSuggestion);
+async function fixQuery(query: string): Promise<string | null> {
+	console.log("No response found. Attempting to fix query...");
+	try {
+		const nameSuggestion = await askAI(`A user in an app entered this city name as a location within the US, but no major subreddit was found for it. If no state was provided, return ONE single word that could be what the user could have been referring to. If a state is included, return in the format "place, state". If it is nonsense, return "NONE" - do NOT include any explanations in any of the answers. Just the raw text. This is the input: ${query}.`);
+
+		console.log("AI suggestion:", nameSuggestion);
+
+		if (nameSuggestion.trim() === "NONE") {
+			return null;
+		}
+
+		// Check if the suggestion includes a state
+		if (nameSuggestion.includes(",")) {
+			const parts = nameSuggestion.split(",").map(p => p.trim());
+			const place = parts[0];
+			const state = parts[1];
+
+			// First try to get subreddit for the suggested location
+			const subredditResult = await getSubreddits(nameSuggestion, false); // Don't recurse
+			if (subredditResult) {
+				return subredditResult;
+			}
+
+			// If no subreddit found, try nearest major city
+			const nearestCity = await getNearestMajorCity(place, state);
+			if (nearestCity) {
+				return await getSubreddits(nearestCity, false);
+			}
+		} else {
+			// Single word suggestion - try it directly first
+			const subredditResult = await getSubreddits(nameSuggestion, false);
+			if (subredditResult) {
+				return subredditResult;
+			}
+
+			// Then try nearest major city
+			const nearestCity = await getNearestMajorCity(nameSuggestion);
+			if (nearestCity) {
+				return await getSubreddits(nearestCity, false);
+			}
+		}
+
+		return null;
+	} catch (error) {
+		console.error("Error in fixQuery:", error);
+		return null;
 	}
-	if (nameSuggestion.includes(",")) {
-		const p = nameSuggestion.split(",");
-		const place = p[0];
-		const state = p[1];
-		// 
-		return await getNearestMajorCity(place, state);
-	}
-	return null;
 }
 
-async function getSubreddits(query: string) {
-	const data = await getJson({ engine: "google", api_key: preferences.serp_api_key, q: `${query} subreddit` });
+async function getSubreddits(query: string, allowFallback: boolean = true): Promise<string | null> {
+	try {
+		console.log(`Searching for subreddit: ${query}`);
+		const data = await getJson({
+			engine: "google",
+			api_key: preferences.serp_api_key,
+			q: `${query} subreddit site:reddit.com`
+		});
 
-	console.log("Got google result.");
-	console.log("Got google result!!!!");
-	const items = data["organic_results"] || [];
-	if (items.length === 0) {
-		return await getSubreddits(await fixQuery(query));
-	}
-	const topLink = items[0].link;
-	console.log("Got link");
-	if (!topLink.startsWith("https://www.reddit.com/r/")) {
-		console.log("No response found. Getting nearest big city...")
-		const nameSuggestion = await askAI(`A user in an app entered this as a location, but no major subredd it was found for it. If no state was provided, return ONE single word that could be what the user could have been referring to. If a state is included, return in the format "place, state". If it is nonsense, return "NONE"`);
-		if (nameSuggestion !== "NONE") {
-			return await getSubreddits(nameSuggestion);
+		console.log("Got Google search results");
+		const items = data["organic_results"] || [];
+
+		if (items.length === 0) {
+			console.log("No search results found");
+			if (allowFallback) {
+				return await fixQuery(query);
+			}
+			return null;
+		}
+
+		for (const item of items) {
+			const link = item.link;
+			console.log("Checking link:", link);
+
+			if (link && link.startsWith("https://www.reddit.com/r/")) {
+				const u = new URL(link);
+				// Fixed regex - was checking against full URL but should check pathname
+				const match = u.pathname.match(/^\/r\/([A-Za-z0-9_]+)\/?$/);
+				if (match) {
+					const subredditName = match[1];
+					console.log("Found subreddit:", subredditName);
+
+					// Verify the subreddit exists and is accessible
+					try {
+						await r.getSubreddit(subredditName).fetch();
+						return subredditName;
+					} catch (error) {
+						console.log(`Subreddit ${subredditName} not accessible, trying next result`);
+						continue;
+					}
+				}
+			}
+		}
+
+		console.log("No valid Reddit links found in results");
+		if (allowFallback) {
+			return await fixQuery(query);
+		}
+		return null;
+	} catch (error) {
+		console.error("Error in getSubreddits:", error);
+		if (allowFallback) {
+			return await fixQuery(query);
 		}
 		return null;
 	}
-	const u = new URL(topLink);
-	const match = u.pathname.match(/^https:\/\/(www\.)?reddit\.com\/r\/[A-Za-z0-9_]+\/?$/);
-	if (match) {
-		console.log("Returning link...");
-		return match[1];
-	}
-	return await getSubreddits(await fixQuery(query));
 }
 
 async function getSubredditContent(name: string) {
-	console.log("Getting subreddit contents...")
-	const posts = await r.getSubreddit(name).getHot({ limit: 10 });
-	console.log("Got subreddit contents. Constructing output...")
-	const result = [];
-	for (const post of posts) {
-		const withComments = await post.expandReplies({ limit: 5, depth: 1 });
-		const commentContent = withComments.comments.map(comment => comment.body);
-		console.log(commentContent)
-		result.push({
-			postTitle: post.title,
-			comments: commentContent
-		});
+	console.log("Getting subreddit contents...");
+	try {
+		const posts = await r.getSubreddit(name).getHot({ limit: 10 });
+		console.log("Got subreddit contents. Constructing output...");
+		const result = [];
+
+		for (const post of posts) {
+			try {
+				const withComments = await post.expandReplies({ limit: 5, depth: 1 });
+				const commentContent = withComments.comments
+					.map(comment => comment.body)
+					.filter(body => body && body.length > 0); // Filter out empty comments
+
+				result.push({
+					postTitle: post.title,
+					comments: commentContent
+				});
+			} catch (error) {
+				console.error("Error expanding post comments:", error);
+				// Continue with just the post title
+				result.push({
+					postTitle: post.title,
+					comments: []
+				});
+			}
+		}
+
+		console.log("Returning subreddit content...");
+		return result;
+	} catch (error) {
+		console.error("Error getting subreddit content:", error);
+		throw error;
 	}
-	console.log("Returning output...")
-	return result;
 }
 
 export default function MyCommand(props: LaunchProps<{ arguments: Arguments.GetMood }>) {
-	const location = props.arguments.location.toLowerCase().replace(",", "").replace(" ", "+");
+	const location = props.arguments.location.toLowerCase().replace(/[,\s]+/g, " ").trim();
 
 	const [headlines, setHeadlines] = useState<string[] | null>(null);
 	const [mood, setMood] = useState<string | null>(null);
+	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {
-		if (!location) return;
+		if (!location) {
+			setLoading(false);
+			return;
+		}
 
 		(async () => {
+			try {
+				console.log("Starting search for location:", location);
+				const subredditName = await getSubreddits(location);
 
-			// Begin searching for 
-			console.log(1);
-			const subredditName = await getSubreddits(location);
+				if (subredditName) {
+					console.log("Found subreddit:", subredditName);
+					const results = await getSubredditContent(subredditName);
 
-			if (subredditName) {
-				const results = await getSubredditContent(subredditName);
-				const prompt = `
-				Your task is to evaluate the following reddit comments. Categorize them into at most three topics from a city's subreddit, and come up with a final "mood" of the city. In this case, the subreddit is r/${subredditName}. Please output four bullet points. The first one will consist of ONLY one word describing the overall mood, with an appropriate emoji before the word. The next three bullet points should describe the top headlines. Do not incldue extra descriptive text like "Mood: Happy" or "Headlines," only the raw answers are required. \n
-				${results.map(post => {
-					let result = ``;
-					result += `# ${post.postTitle}\n`;
-					for (const comment in post.comments) {
-						result += `- ${comment}\n`;
+					const prompt = `
+Your task is to evaluate the following reddit posts and comments from r/${subredditName}. Categorize them into at most three topics from this city's subreddit, and come up with a final "mood" of the city. Please output exactly four bullet points. The first bullet point should contain ONLY one word describing the overall mood, with an appropriate emoji before the word. The next three bullet points should describe the top headlines/topics. Do not include extra descriptive text like "Mood:" or "Headlines:" - only the raw answers are required.
+
+${results.map(post => {
+						let result = `# ${post.postTitle}\n`;
+						post.comments.forEach(comment => {
+							if (comment && comment.length > 0) {
+								result += `- ${comment}\n`;
+							}
+						});
+						result += "\n";
+						return result;
+					}).join("")}
+`;
+
+					const aiResponse = await askAI(prompt);
+					console.log("AI Response:", aiResponse);
+
+					const rawLines = aiResponse.split("\n").filter(line => line.trim().length > 0);
+					const lines = rawLines.map(line => line.replace(/^[-•]\s*/, "").trim());
+
+					if (lines.length >= 4) {
+						setMood(lines[0]);
+						setHeadlines([lines[1], lines[2], lines[3]]);
+					} else {
+						// Fallback if AI doesn't return expected format
+						setMood(lines[0] || "😐 Unknown");
+						const remainingLines = lines.slice(1);
+						while (remainingLines.length < 3) {
+							remainingLines.push("No additional information available");
+						}
+						setHeadlines(remainingLines.slice(0, 3));
 					}
-					result += "\n";
-					return result;
-				})}
-				`;
-
-				const aiResponse = await askAI(prompt);
-
-				const rawLines = aiResponse.split("\n");
-				const lines = rawLines.map(line => line.replace("-", "").trim());
-				setMood(lines[0]);
-				setHeadlines([lines[1], lines[2], lines[3]]);
-				console.log(lines);
+				} else {
+					setError("No subreddit found for this location. Try a larger city or different spelling.");
+				}
+			} catch (err) {
+				console.error("Error in main function:", err);
+				setError("An error occurred while fetching data. Please try again.");
+			} finally {
+				setLoading(false);
 			}
 		})();
-	}, []);
+	}, [location]);
 
-	return <>
-		{mood && (
+	if (loading) {
+		return <Detail markdown={` Loading...\n\nSearching for city mood...`} />;
+	}
+
+	if (error) {
+		return <Detail markdown={`# Error\n\n${error}`} />;
+	}
+
+	if (mood && headlines) {
+		return (
 			<Detail
-				markdown={`# Mood: ${mood}\n\n${headlines!.map(h => `- ${h}`).join("\n")}`}
+				markdown={`# Mood: ${mood}\n\n## Top Topics:\n${headlines.map(h => `- ${h}`).join("\n")}`}
 			/>
-		)}
-	</>;
+		);
+	}
+
+	return <Detail markdown="# No Data \n No mood data available for this location." />;
 }
