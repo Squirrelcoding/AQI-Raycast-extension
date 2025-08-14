@@ -13,8 +13,8 @@ type ExtensionPreferences = {}
 declare type Preferences = ExtensionPreferences
 
 declare namespace Preferences {
-  /** Preferences accessible in the `get-aqi` command */
-  export type GetAqi = ExtensionPreferences & {
+  /** Preferences accessible in the `get-mood` command */
+  export type GetMood = ExtensionPreferences & {
   /** Reddit Client ID - Reddit Client ID. */
   "client_id": string,
   /** Reddit Client Secreet - Reddit Client Secret. */
@@ -23,14 +23,16 @@ declare namespace Preferences {
   "reddit_username": string,
   /** Reddit Password - Reddit Password. */
   "reddit_password": string,
-  /** Google Search API Key - Reddit Password. */
-  "google_api_key": string
+  /** SerpAPI Key - SerpAPI Key */
+  "serp_api_key": string,
+  /** Gemma API Key - Gemma API Key */
+  "gemma_api_key": string
 }
 }
 
 declare namespace Arguments {
-  /** Arguments passed to the `get-aqi` command */
-  export type GetAqi = {
+  /** Arguments passed to the `get-mood` command */
+  export type GetMood = {
   /** Enter location */
   "location": string
 }

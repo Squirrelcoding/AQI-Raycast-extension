@@ -8,9 +8,9 @@
   "license": "MIT",
   "commands": [
     {
-      "name": "get-aqi",
-      "title": "Get AQI",
-      "description": "Fetch air quality data for a location",
+      "name": "get-mood",
+      "title": "Get Mood",
+      "description": "Get the mood of a particular location",
       "mode": "view",
       "arguments": [
         {
@@ -54,11 +54,19 @@
           "required": true
         },
         {
-          "name": "google_api_key",
+          "name": "serp_api_key",
           "type": "password",
-          "title": "Google Search API Key",
+          "title": "SerpAPI Key",
           "default": "",
-          "description": "Reddit Password.",
+          "description": "SerpAPI Key",
+          "required": true
+        },
+        {
+          "name": "gemma_api_key",
+          "type": "password",
+          "title": "Gemma API Key",
+          "default": "",
+          "description": "Gemma API Key",
           "required": true
         }
       ]
