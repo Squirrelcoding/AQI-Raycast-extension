@@ -68,14 +68,33 @@
           "default": "",
           "description": "Gemma API Key",
           "required": true
+        },
+        {
+          "name": "supabase_url",
+          "type": "textfield",
+          "title": "Supabase URL",
+          "default": "",
+          "description": "Supabase URL",
+          "required": true
+        },
+        {
+          "name": "supabase_key",
+          "type": "password",
+          "title": "Supabase Key",
+          "default": "",
+          "description": "Supabase Key",
+          "required": true
         }
       ]
     }
   ],
   "dependencies": {
+    "@google/genai": "^1.14.0",
     "@raycast/api": "^1.102.3",
     "@raycast/utils": "^1.17.0",
+    "@supabase/supabase-js": "^2.55.0",
     "dotenv": "^17.2.1",
+    "serpapi": "^2.2.1",
     "snoowrap": "^1.23.0",
     "ts-node": "^10.9.2"
   },

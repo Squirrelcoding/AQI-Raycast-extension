@@ -26,7 +26,11 @@ declare namespace Preferences {
   /** SerpAPI Key - SerpAPI Key */
   "serp_api_key": string,
   /** Gemma API Key - Gemma API Key */
-  "gemma_api_key": string
+  "gemma_api_key": string,
+  /** Supabase URL - Supabase URL */
+  "supabase_url": string,
+  /** Supabase Key - Supabase Key */
+  "supabase_key": string
 }
 }
 
