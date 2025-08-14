@@ -1,0 +1,90 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "air-quality",
+  "title": "Air Quality",
+  "description": "Check air quality for any location",
+  "icon": "extension-icon.png",
+  "author": "squirrelcoding",
+  "license": "MIT",
+  "commands": [
+    {
+      "name": "get-aqi",
+      "title": "Get AQI",
+      "description": "Fetch air quality data for a location",
+      "mode": "view",
+      "arguments": [
+        {
+          "name": "location",
+          "type": "text",
+          "placeholder": "Enter location",
+          "required": true
+        }
+      ],
+      "preferences": [
+        {
+          "name": "client_id",
+          "type": "textfield",
+          "title": "Reddit Client ID",
+          "default": "",
+          "description": "Reddit Client ID.",
+          "required": true
+        },
+        {
+          "name": "client_secret",
+          "type": "password",
+          "title": "Reddit Client Secreet",
+          "default": "",
+          "description": "Reddit Client Secret.",
+          "required": true
+        },
+        {
+          "name": "reddit_username",
+          "type": "textfield",
+          "title": "Reddit username",
+          "default": "",
+          "description": "Reddit username.",
+          "required": true
+        },
+        {
+          "name": "reddit_password",
+          "type": "password",
+          "title": "Reddit Password",
+          "default": "",
+          "description": "Reddit Password.",
+          "required": true
+        },
+        {
+          "name": "google_api_key",
+          "type": "password",
+          "title": "Google Search API Key",
+          "default": "",
+          "description": "Reddit Password.",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^1.102.3",
+    "@raycast/utils": "^1.17.0",
+    "dotenv": "^17.2.1",
+    "snoowrap": "^1.23.0",
+    "ts-node": "^10.9.2"
+  },
+  "devDependencies": {
+    "@raycast/eslint-config": "^2.0.4",
+    "@types/node": "^22.13.10",
+    "@types/react": "19.0.10",
+    "eslint": "^9.22.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.9.2"
+  },
+  "scripts": {
+    "build": "ray build",
+    "dev": "ray develop",
+    "fix-lint": "ray lint --fix",
+    "lint": "ray lint",
+    "prepublishOnly": "echo \"\\n\\nIt seems like you are trying to publish the Raycast extension to npm.\\n\\nIf you did intend to publish it to npm, remove the \\`prepublishOnly\\` script and rerun \\`npm publish\\` again.\\nIf you wanted to publish it to the Raycast Store instead, use \\`npm run publish\\` instead.\\n\\n\" && exit 1",
+    "publish": "npx @raycast/api@latest publish"
+  }
+}
