@@ -1,5 +1,5 @@
 import { Detail, LaunchProps, getPreferenceValues } from "@raycast/api";
-import { useEffect, useState } from "react";
+import { cache, useEffect, useState } from "react";
 import snoowrap from "snoowrap";
 import { getJson } from "serpapi";
 import { createClient } from "@supabase/supabase-js";
@@ -25,10 +25,42 @@ const ai = new GoogleGenAI({
 
 async function askAI(query: string) {
 	const response = await ai.models.generateContent({
-		model: "gemma-3-27b-it",
+		model: "gemini-1.5-flash",
 		contents: query,
 	});
 	return response.text || "NO RESPONSE";
+}
+
+async function getCache(subreddit_name: string) {
+
+	const yesterday = new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString();
+
+	const { data, error } = await supabase
+		.from("townmood cache")
+		.select("*")
+		.eq("subreddit", subreddit_name)
+		.gte("created_at", yesterday)
+		.order("created_at", { ascending: false })
+		.limit(1);
+
+	if (!data || data.length === 0) return null;
+
+	return data;
+}
+
+async function setCache(subreddit_name: string, mood: string, h1: string, h2: string, h3: string) {
+
+	const { error } = await supabase
+		.from("townmood cache")
+		.insert({
+			subreddit: subreddit_name,
+			mood,
+			headline1: h1,
+			headline2: h2,
+			headline3: h3 
+		});
+
+	if (error) throw error;
 }
 
 async function getNearestMajorCity(city: string, state: string | null = null): Promise<string | null> {
@@ -123,6 +155,8 @@ async function fixQuery(query: string): Promise<string | null> {
 async function getSubreddits(query: string, allowFallback: boolean = true): Promise<string | null> {
 	try {
 		console.log(`Searching for subreddit: ${query}`);
+
+
 		const data = await getJson({
 			engine: "google",
 			api_key: preferences.serp_api_key,
@@ -153,13 +187,7 @@ async function getSubreddits(query: string, allowFallback: boolean = true): Prom
 					console.log("Found subreddit:", subredditName);
 
 					// Verify the subreddit exists and is accessible
-					try {
-						await r.getSubreddit(subredditName).fetch();
-						return subredditName;
-					} catch (error) {
-						console.log(`Subreddit ${subredditName} not accessible, trying next result`);
-						continue;
-					}
+					return subredditName;
 				}
 			}
 		}
@@ -181,6 +209,8 @@ async function getSubreddits(query: string, allowFallback: boolean = true): Prom
 async function getSubredditContent(name: string) {
 	console.log("Getting subreddit contents...");
 	try {
+		// First search for subreddit name in cache
+
 		const posts = await r.getSubreddit(name).getHot({ limit: 10 });
 		console.log("Got subreddit contents. Constructing output...");
 		const result = [];
@@ -234,6 +264,19 @@ export default function MyCommand(props: LaunchProps<{ arguments: Arguments.GetM
 				const subredditName = await getSubreddits(location);
 
 				if (subredditName) {
+					const cacheData = await getCache(subredditName);
+					if (cacheData) {
+						console.log("CACHE DATA");
+						console.log(cacheData);
+						setMood(cacheData[0].mood);
+						setHeadlines([
+							cacheData[0].headline1,
+							cacheData[0].headline2,
+							cacheData[0].headline3,
+						]);
+						return;
+					}
+
 					console.log("Found subreddit:", subredditName);
 					const results = await getSubredditContent(subredditName);
 
@@ -261,6 +304,7 @@ ${results.map(post => {
 					if (lines.length >= 4) {
 						setMood(lines[0]);
 						setHeadlines([lines[1], lines[2], lines[3]]);
+						setCache(subredditName, lines[0], lines[1], lines[2], lines[3]);
 					} else {
 						// Fallback if AI doesn't return expected format
 						setMood(lines[0] || "😐 Unknown");
